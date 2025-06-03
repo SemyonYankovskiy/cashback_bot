@@ -1,14 +1,11 @@
-version: "3.8"
+version: '3'
 
 services:
-  tg-bot:
+  cash-bot:
     build: .
-    container_name: tg-bot
-    restart: unless-stopped
-    env_file:
-      - .env
+    image: cash-bot:1.0
+    restart: always
     environment:
-      - BOT_TOKEN=${BOT_TOKEN}
+      TG_TOKEN: <token>
     volumes:
-      - ./data:/app/data
-    command: python core.py
+      - "./db:/app/db"
