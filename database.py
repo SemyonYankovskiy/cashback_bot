@@ -92,6 +92,17 @@ async def get_categories():
         return await cursor.fetchall()
 
 
+async def add_categories(new_cat):
+    async with get_db() as db:
+        await db.execute("INSERT INTO categories (name) VALUES (?)", (new_cat,))
+        await db.commit()
+
+
+async def delete_category(cat_id: int):
+    async with get_db() as db:
+        await db.execute("DELETE FROM categories WHERE id = ?", (cat_id,))
+        await db.commit()
+
 async def insert_cashback(user_id: int, bank_id: int, category_id: int, percent: float, period: str):
     async with get_db() as db:
         await db.execute('''

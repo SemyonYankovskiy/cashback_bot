@@ -6,7 +6,7 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 
 from database import register_user, get_banks, get_categories, insert_cashback, get_user_friend, set_user_friend, \
     delete_all_cashbacks, get_user_bank_category_pairs, \
-    delete_cashback_entries
+    delete_cashback_entries, add_categories, delete_category
 from core import determine_period, format_cashbacks, get_next_two_periods, delete_menu_keyboard, \
     confirm_all_deletion_keyboard, bank_category_selection_keyboard
 
@@ -27,6 +27,12 @@ class DeleteStates(StatesGroup):
     confirming_all = State()
 
 
+class AdminState(StatesGroup):
+    menu = State()
+    add_cashback_category = State()
+    delete_cashback_category = State()
+
+
 def main_menu_keyboard():
     return ReplyKeyboardMarkup(resize_keyboard=True).add(
         KeyboardButton("📊 Показать мой кешбек"),
@@ -45,12 +51,103 @@ def register_handlers(dp):
         await register_user(msg.from_user.id)
         await msg.answer("Добро пожаловать!", reply_markup=main_menu_keyboard())
 
+
     # Обработка выхода через кнопку
     @dp.callback_query_handler(lambda c: c.data == "exit", state='*')
     async def exit_process(call: types.CallbackQuery, state: FSMContext):
         await state.finish()
         await call.message.edit_text("Отменено", reply_markup=None)
         await call.answer()  # чтобы убрать "часики" у кнопки
+
+
+    @dp.message_handler(commands="admin")
+    async def add_cashback_category(msg: types.Message, state: FSMContext):
+        print(f"{msg.from_user.username}, commands='admin'")
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(InlineKeyboardButton("Добавить категорию", callback_data="add_cashback_category"))
+        markup.add(InlineKeyboardButton("Удалить категорию", callback_data="delete_cashback_category"))
+        markup.add(get_exit_button())
+
+        print(f"Клавиатура: {markup}")  # Отладка
+
+        await msg.answer("Выберите действие:", reply_markup=markup)
+        await state.set_state(AdminState.menu)
+
+    @dp.callback_query_handler(text="back_to_admin", state="*")
+    async def back_to_admin_menu(call: types.CallbackQuery, state: FSMContext):
+        markup = InlineKeyboardMarkup(row_width=1)
+        markup.add(InlineKeyboardButton("Добавить категорию", callback_data="add_cashback_category"))
+        markup.add(InlineKeyboardButton("Удалить категорию", callback_data="delete_cashback_category"))
+        markup.add(get_exit_button())
+
+        await call.message.answer("Выберите действие:", reply_markup=markup)
+        await state.set_state(AdminState.menu)
+        await call.answer()
+
+    @dp.callback_query_handler(text="add_cashback_category", state=AdminState.menu)
+    async def add_category_handler(call: types.CallbackQuery, state: FSMContext):
+        print("DEBUG: нажата кнопка", call.data)
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 Назад", callback_data="back_to_admin"))
+        await call.message.answer("Добавление категории\nВведите название категории:", reply_markup=markup)
+        await state.set_state(AdminState.add_cashback_category)
+
+    @dp.message_handler(state=AdminState.add_cashback_category)
+    async def add_category_process(msg: types.Message, state: FSMContext):
+        text = msg.text.strip()
+
+        try:
+            await add_categories(text)
+        except ValueError:
+            await msg.answer("Ошибка")
+            return
+
+        await state.finish()
+        await msg.answer("Категория успешно добавлена!", reply_markup=main_menu_keyboard())
+
+
+    @dp.callback_query_handler(text="delete_cashback_category", state=AdminState.menu)
+    async def delete_category_handler(call: types.CallbackQuery, state: FSMContext):
+        print("DEBUG: нажата кнопка", call.data)
+        cats = await get_categories()
+        if not cats:
+            await call.message.answer("Нет доступных категорий для удаления.")
+            await call.answer()
+            return
+
+        markup = InlineKeyboardMarkup(row_width=1)
+        for cat_id, name in cats:
+            markup.add(InlineKeyboardButton(f"❌ {name}", callback_data=f"delete_cat_{cat_id}"))
+        markup.add(InlineKeyboardButton("🔙 Назад", callback_data="back_to_admin"))
+
+        await call.message.answer("Выберите категорию для удаления:", reply_markup=markup)
+        await state.set_state(AdminState.delete_cashback_category)
+
+
+    @dp.callback_query_handler(lambda c: c.data.startswith("delete_cat_"), state=AdminState.delete_cashback_category)
+    async def confirm_delete_category(call: types.CallbackQuery, state: FSMContext):
+        cat_id = int(call.data.replace("delete_cat_", ""))
+
+        try:
+            await delete_category(cat_id)
+            await call.message.answer("Категория успешно удалена.")
+            await state.finish()
+        except Exception as e:
+            await call.message.answer(f"Ошибка при удалении: {e}")
+
+            await state.set_state(AdminState.menu)
+
+            # Покажем снова админ-меню
+            markup = InlineKeyboardMarkup(row_width=1)
+            markup.add(InlineKeyboardButton("Добавить категорию", callback_data="add_cashback_category"))
+            markup.add(InlineKeyboardButton("Удалить категорию", callback_data="delete_cashback_category"))
+            markup.add(get_exit_button())
+
+            await call.message.answer("Выберите действие:", reply_markup=markup)
+            await call.answer()
+
+
+
 
     @dp.message_handler(commands="add")
     async def add_cashback(msg: types.Message, state: FSMContext):
